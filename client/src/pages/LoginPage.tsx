@@ -65,7 +65,7 @@ export const LoginPage: React.FC = () => {
                 <input
                   type="email"
                   required
-                  placeholder="aditya@chandiramani.dev"
+                  placeholder="Enter your email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs placeholder-slate-600 focus:border-emerald-500 outline-none"
@@ -80,7 +80,7 @@ export const LoginPage: React.FC = () => {
                 <input
                   type="password"
                   required
-                  placeholder="••••••••"
+                  placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs placeholder-slate-600 focus:border-emerald-500 outline-none"

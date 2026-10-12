@@ -69,7 +69,7 @@ export const RegisterPage: React.FC = () => {
                 <input
                   type="text"
                   required
-                  placeholder="Aditya Chandiramani"
+                  placeholder="Your Full Name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs placeholder-slate-600 focus:border-emerald-500 outline-none"
@@ -86,7 +86,7 @@ export const RegisterPage: React.FC = () => {
                 <input
                   type="email"
                   required
-                  placeholder="aditya@chandiramani.dev"
+                  placeholder="name@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs placeholder-slate-600 focus:border-emerald-500 outline-none"
@@ -102,7 +102,7 @@ export const RegisterPage: React.FC = () => {
                 <Building className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
                 <input
                   type="text"
-                  placeholder="Vanguard Design Studio"
+                  placeholder="Your Business or Agency Name"
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs placeholder-slate-600 focus:border-emerald-500 outline-none"
