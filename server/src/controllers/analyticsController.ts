@@ -60,11 +60,17 @@ export const getCashFlowForecast = async (req: AuthRequest, res: Response): Prom
     const pipeline = buildCashFlowForecastPipeline(userId);
     const projectedInvoices = await Invoice.aggregate(pipeline);
 
-    // 2. Fetch recurring expenses
-    const recurringExpenses = await RecurringExpense.find({
-      userId,
-      isActive: true,
-    });
+    // 2. Fetch recurring expenses and total payments already collected
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    const [recurringExpenses, collectedAgg] = await Promise.all([
+      RecurringExpense.find({ userId, isActive: true }),
+      Invoice.aggregate([
+        { $match: { userId: userObjectId } },
+        { $group: { _id: null, totalCollected: { $sum: '$amountPaid' } } },
+      ]),
+    ]);
+
+    const totalCollected = collectedAgg[0]?.totalCollected || 0;
 
     const monthlyExpenseTotal = recurringExpenses.reduce((sum, exp) => {
       if (exp.frequency === 'MONTHLY') return sum + exp.amount;
@@ -102,33 +108,49 @@ export const getCashFlowForecast = async (req: AuthRequest, res: Response): Prom
       else if (origDate <= d90) originalInflow90 += inv.balanceDue;
     });
 
-    // 4. Construct monthly projection comparison (Next 3 calendar periods)
+    // 4. Construct monthly projection comparison with cumulative runway carryover
+    const p1Net = inflow30 - monthlyExpenseTotal;
+    const p1Runway = totalCollected + p1Net;
+
+    const p2Net = inflow60 - monthlyExpenseTotal;
+    const p2Runway = p1Runway + p2Net;
+
+    const p3Net = inflow90 - monthlyExpenseTotal;
+    const p3Runway = p2Runway + p3Net;
+
     const projections = [
       {
         period: '0-30 Days',
         projectedInflow: Math.round(inflow30),
         scheduledInflow: Math.round(originalInflow30),
         recurringExpenses: Math.round(monthlyExpenseTotal),
-        netCashFlow: Math.round(inflow30 - monthlyExpenseTotal),
+        netCashFlow: Math.round(p1Net),
+        openingBalance: Math.round(totalCollected),
+        cumulativeRunway: Math.round(p1Runway),
       },
       {
         period: '31-60 Days',
         projectedInflow: Math.round(inflow60),
         scheduledInflow: Math.round(originalInflow60),
         recurringExpenses: Math.round(monthlyExpenseTotal),
-        netCashFlow: Math.round(inflow60 - monthlyExpenseTotal),
+        netCashFlow: Math.round(p2Net),
+        openingBalance: Math.round(p1Runway),
+        cumulativeRunway: Math.round(p2Runway),
       },
       {
         period: '61-90 Days',
         projectedInflow: Math.round(inflow90),
         scheduledInflow: Math.round(originalInflow90),
         recurringExpenses: Math.round(monthlyExpenseTotal),
-        netCashFlow: Math.round(inflow90 - monthlyExpenseTotal),
+        netCashFlow: Math.round(p3Net),
+        openingBalance: Math.round(p2Runway),
+        cumulativeRunway: Math.round(p3Runway),
       },
     ];
 
     res.json({
       success: true,
+      totalCollected: Math.round(totalCollected),
       monthlyExpenseTotal: Math.round(monthlyExpenseTotal),
       projections,
       projectedInvoices,

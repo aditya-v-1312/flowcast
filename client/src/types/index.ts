@@ -159,17 +159,22 @@ export interface IDashboardAnalytics {
 
 export interface ICashFlowForecast {
   monthlyExpenseTotal: number;
+  totalCollected?: number;
   projections: {
     period: string;
     projectedInflow: number;
     scheduledInflow: number;
     recurringExpenses: number;
     netCashFlow: number;
+    openingBalance?: number;
+    cumulativeRunway?: number;
   }[];
   projectedInvoices: {
     invoiceNumber: string;
     clientName: string;
     companyName?: string;
+    totalAmount?: number;
+    amountPaid?: number;
     balanceDue: number;
     originalDueDate: string;
     adjustedPaymentDate: string;

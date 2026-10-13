@@ -88,22 +88,25 @@ export const CashFlowPage: React.FC = () => {
     }
   };
 
-  // Dynamically recalculate bucket inflows when simulation delay is applied so deferred cash rolls over into following periods
-  const { simulatedProjections, delayedBeyond90 } = React.useMemo(() => {
+  // Dynamically recalculate bucket inflows & cumulative runway carryover starting with payments already collected
+  const { simulatedProjections, delayedBeyond90, totalPaymentsCollected, totalInvoicedAmount } = React.useMemo(() => {
     if (!data?.projections) {
-      return { simulatedProjections: [], delayedBeyond90: 0 };
-    }
-
-    if (simulationDelayDays === 0) {
       return {
-        simulatedProjections: data.projections.map((p) => ({
-          ...p,
-          simulatedInflow: p.projectedInflow,
-          simulatedNet: p.netCashFlow,
-        })),
+        simulatedProjections: [],
         delayedBeyond90: 0,
+        totalPaymentsCollected: 0,
+        totalInvoicedAmount: 0,
       };
     }
+
+    const totalPaymentsCollected = data.totalCollected ?? (
+      (data.projectedInvoices || []).reduce((acc, inv) => acc + (inv.amountPaid || 0), 0)
+    );
+
+    const totalInvoicedAmount = (data.projectedInvoices || []).reduce(
+      (acc, inv) => acc + (inv.totalAmount || inv.balanceDue + (inv.amountPaid || 0)),
+      0
+    );
 
     const now = Date.now();
     const d30 = now + 30 * 24 * 60 * 60 * 1000;
@@ -130,6 +133,9 @@ export const CashFlowPage: React.FC = () => {
       }
     });
 
+    // Carry forward cash runway cumulatively across periods, starting with payments already collected
+    let runningCash = totalPaymentsCollected;
+
     const simulatedProjections = data.projections.map((p) => {
       let inflow = 0;
       if (p.period.includes('0-30')) inflow = simInflow30;
@@ -137,16 +143,26 @@ export const CashFlowPage: React.FC = () => {
       else if (p.period.includes('61-90')) inflow = simInflow90;
 
       const roundedInflow = Math.round(inflow);
-      const simulatedNet = roundedInflow - p.recurringExpenses;
+      const periodNet = roundedInflow - p.recurringExpenses;
+      const openingCash = runningCash;
+      runningCash = runningCash + periodNet;
+      const cumulativeRunway = runningCash;
 
       return {
         ...p,
         simulatedInflow: roundedInflow,
-        simulatedNet,
+        simulatedNet: periodNet,
+        openingCash,
+        cumulativeRunway,
       };
     });
 
-    return { simulatedProjections, delayedBeyond90 };
+    return {
+      simulatedProjections,
+      delayedBeyond90,
+      totalPaymentsCollected,
+      totalInvoicedAmount,
+    };
   }, [data, simulationDelayDays]);
 
   const totalProjectedReceivables = (data?.projectedInvoices || []).reduce(
@@ -234,7 +250,7 @@ export const CashFlowPage: React.FC = () => {
       {/* 30 / 60 / 90 Days Bucket Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {simulatedProjections.map((bucket, index) => {
-          const isDeficit = bucket.simulatedNet < 0;
+          const isDeficit = bucket.cumulativeRunway < 0;
           return (
             <div
               key={bucket.period}
@@ -257,9 +273,23 @@ export const CashFlowPage: React.FC = () => {
               </div>
 
               <div className="mt-4 space-y-2">
+                {index === 0 && totalPaymentsCollected > 0 && (
+                  <div className="flex justify-between items-baseline text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded border border-emerald-500/20">
+                    <span className="font-medium">Payments Already Collected:</span>
+                    <span className="font-bold">+{currency} {totalPaymentsCollected.toLocaleString()}</span>
+                  </div>
+                )}
+                {index > 0 && (
+                  <div className="flex justify-between items-baseline text-xs text-slate-400 bg-slate-800/40 px-2.5 py-1 rounded">
+                    <span>Opening Cash Carryover:</span>
+                    <span className="font-semibold text-slate-200">
+                      {currency} {bucket.openingCash.toLocaleString()}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between items-baseline">
-                  <span className="text-xs text-slate-400">Projected Inflow:</span>
-                  <span className="text-lg font-bold text-white">
+                  <span className="text-xs text-slate-400">Pending Inflow:</span>
+                  <span className="text-base font-bold text-white">
                     {currency} {bucket.simulatedInflow.toLocaleString()}
                   </span>
                 </div>
@@ -269,14 +299,20 @@ export const CashFlowPage: React.FC = () => {
                     -{currency} {bucket.recurringExpenses.toLocaleString()}
                   </span>
                 </div>
+                <div className="flex justify-between items-baseline text-xs text-slate-400">
+                  <span>Period Net Change:</span>
+                  <span className={`font-semibold ${bucket.simulatedNet >= 0 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    {bucket.simulatedNet >= 0 ? '+' : ''}{currency} {bucket.simulatedNet.toLocaleString()}
+                  </span>
+                </div>
                 <div className="pt-2 border-t border-slate-800 flex justify-between items-baseline">
-                  <span className="text-xs font-bold text-slate-300">Net Runway:</span>
+                  <span className="text-xs font-bold text-slate-300">Ending Cash Runway:</span>
                   <span
-                    className={`text-base font-extrabold ${
+                    className={`text-lg font-extrabold ${
                       isDeficit ? 'text-rose-400' : 'text-emerald-400'
                     }`}
                   >
-                    {currency} {bucket.simulatedNet.toLocaleString()}
+                    {currency} {bucket.cumulativeRunway.toLocaleString()}
                   </span>
                 </div>
               </div>
@@ -329,13 +365,21 @@ export const CashFlowPage: React.FC = () => {
 
       {/* Upcoming Invoices Breakdown Table */}
       <div className="bg-slate-900/80 border border-slate-800 rounded-xl overflow-hidden">
-        <div className="p-5 border-b border-slate-800 flex items-center justify-between">
+        <div className="p-5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-bold text-white flex items-center gap-2">
             <span>Forecast Receivables Queue</span>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
-              Total Outstanding: {currency} {totalProjectedReceivables.toLocaleString()}
-            </span>
           </h2>
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+            <span className="px-2.5 py-1 rounded-full bg-slate-800 text-slate-300">
+              Total Invoiced: {currency} {totalInvoicedAmount.toLocaleString()}
+            </span>
+            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              Paid to Date: {currency} {totalPaymentsCollected.toLocaleString()}
+            </span>
+            <span className="px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+              Balance Due: {currency} {totalProjectedReceivables.toLocaleString()}
+            </span>
+          </div>
         </div>
 
         {data?.projectedInvoices.length === 0 ? (
@@ -349,7 +393,9 @@ export const CashFlowPage: React.FC = () => {
                 <tr>
                   <th className="px-5 py-3">Invoice #</th>
                   <th className="px-5 py-3">Client</th>
-                  <th className="px-5 py-3">Amount Due</th>
+                  <th className="px-5 py-3">Total Billed</th>
+                  <th className="px-5 py-3">Paid to Date</th>
+                  <th className="px-5 py-3">Balance Due</th>
                   <th className="px-5 py-3">Nominal Due</th>
                   <th className="px-5 py-3">Client Delay Factor</th>
                   <th className="px-5 py-3">Predicted Arrival</th>
@@ -357,63 +403,83 @@ export const CashFlowPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {data?.projectedInvoices.map((inv, idx) => (
-                  <tr key={idx} className="hover:bg-slate-800/40 transition">
-                    <td className="px-5 py-3.5 font-semibold text-white">{inv.invoiceNumber}</td>
-                    <td className="px-5 py-3.5">
-                      <span className="text-slate-200">{inv.clientName}</span>
-                      {inv.companyName && (
-                        <span className="block text-xs text-slate-500">{inv.companyName}</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5 font-bold text-emerald-400">
-                      {currency} {inv.balanceDue.toLocaleString()}
-                    </td>
-                    <td className="px-5 py-3.5 text-slate-400">
-                      {new Date(inv.originalDueDate).toLocaleDateString()}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded font-medium ${
-                          inv.clientDelayDays > 15
-                            ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                            : inv.clientDelayDays > 5
+                {data?.projectedInvoices.map((inv, idx) => {
+                  const billedTotal = inv.totalAmount || (inv.balanceDue + (inv.amountPaid || 0));
+                  const paid = inv.amountPaid || 0;
+                  return (
+                    <tr key={idx} className="hover:bg-slate-800/40 transition">
+                      <td className="px-5 py-3.5 font-semibold text-white">{inv.invoiceNumber}</td>
+                      <td className="px-5 py-3.5">
+                        <span className="text-slate-200">{inv.clientName}</span>
+                        {inv.companyName && (
+                          <span className="block text-xs text-slate-500">{inv.companyName}</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5 text-slate-300 font-medium">
+                        {currency} {billedTotal.toLocaleString()}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        {paid > 0 ? (
+                          <span className="text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded text-xs">
+                            +{currency} {paid.toLocaleString()}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5 font-bold text-white">
+                        {currency} {inv.balanceDue.toLocaleString()}
+                      </td>
+                      <td className="px-5 py-3.5 text-slate-400">
+                        {new Date(inv.originalDueDate).toLocaleDateString()}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded font-medium ${
+                            inv.clientDelayDays > 15
+                              ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                              : inv.clientDelayDays > 5
+                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                              : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          }`}
+                        >
+                          +{inv.clientDelayDays} Days
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-slate-200 font-medium">
+                        {simulationDelayDays > 0 ? (
+                          <div>
+                            <div className="flex items-center gap-1.5 text-amber-400 font-semibold">
+                              <span>
+                                {new Date(
+                                  new Date(inv.adjustedPaymentDate).getTime() +
+                                    simulationDelayDays * 24 * 60 * 60 * 1000
+                                ).toLocaleDateString()}
+                              </span>
+                              <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-normal">
+                                +{simulationDelayDays}d
+                              </span>
+                            </div>
+                            <div className="text-xs text-slate-500 line-through">
+                              {new Date(inv.adjustedPaymentDate).toLocaleDateString()}
+                            </div>
+                          </div>
+                        ) : (
+                          new Date(inv.adjustedPaymentDate).toLocaleDateString()
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          inv.status === 'PARTIAL'
                             ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                            : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                        }`}
-                      >
-                        +{inv.clientDelayDays} Days
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5 text-slate-200 font-medium">
-                      {simulationDelayDays > 0 ? (
-                        <div>
-                          <div className="flex items-center gap-1.5 text-amber-400 font-semibold">
-                            <span>
-                              {new Date(
-                                new Date(inv.adjustedPaymentDate).getTime() +
-                                  simulationDelayDays * 24 * 60 * 60 * 1000
-                              ).toLocaleDateString()}
-                            </span>
-                            <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-normal">
-                              +{simulationDelayDays}d
-                            </span>
-                          </div>
-                          <div className="text-xs text-slate-500 line-through">
-                            {new Date(inv.adjustedPaymentDate).toLocaleDateString()}
-                          </div>
-                        </div>
-                      ) : (
-                        new Date(inv.adjustedPaymentDate).toLocaleDateString()
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">
-                        {inv.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                            : 'bg-slate-800 text-slate-300'
+                        }`}>
+                          {inv.status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

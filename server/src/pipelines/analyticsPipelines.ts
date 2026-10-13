@@ -243,6 +243,8 @@ export const buildCashFlowForecastPipeline = (userId: string): PipelineStage[] =
         invoiceNumber: 1,
         clientName: '$clientDoc.name',
         companyName: '$clientDoc.companyName',
+        totalAmount: 1,
+        amountPaid: 1,
         balanceDue: 1,
         originalDueDate: '$dueDate',
         adjustedPaymentDate: 1,
