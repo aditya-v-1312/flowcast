@@ -77,6 +77,11 @@ app.use('/api/expenses', expenseRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/public', publicRoutes);
 
+// Catch-all for undefined /api routes (ensures API always returns clean JSON)
+app.use('/api/*', (req, res) => {
+  res.status(404).json({ success: false, message: `API endpoint not found: ${req.method} ${req.originalUrl}` });
+});
+
 // Production Static Serving: Serve React client build if present
 const clientDistPath = path.resolve(process.cwd(), '../client/dist');
 const altClientDistPath = path.resolve(process.cwd(), 'client/dist');

@@ -13,6 +13,7 @@ router.use(authenticateToken);
 
 router.get('/dashboard', getDashboardAnalytics);
 router.get('/cashflow', getCashFlowForecast);
+router.get('/forecast', getCashFlowForecast);
 router.post('/sync-reliability', syncClientReliability);
 
 // On-demand trigger for testing cron job logic during viva/evaluation
