@@ -65,7 +65,13 @@ export const InvoiceDetailPage: React.FC = () => {
   };
 
   const [sendingEmail, setSendingEmail] = useState(false);
-  const [emailNotice, setEmailNotice] = useState<{ message: string; previewUrl?: string } | null>(null);
+  const [emailNotice, setEmailNotice] = useState<{
+    message: string;
+    previewUrl?: string | false;
+    fallback?: boolean;
+    mailtoUrl?: string;
+    webmailUrl?: string;
+  } | null>(null);
 
   const handleSendEmail = async () => {
     if (!invoice) return;
@@ -75,6 +81,9 @@ export const InvoiceDetailPage: React.FC = () => {
       setEmailNotice({
         message: res.data.message,
         previewUrl: res.data.previewUrl,
+        fallback: res.data.fallback,
+        mailtoUrl: res.data.mailtoUrl,
+        webmailUrl: res.data.webmailUrl,
       });
       fetchInvoice();
     } catch (err: any) {
@@ -193,7 +202,7 @@ export const InvoiceDetailPage: React.FC = () => {
           </button>
 
           <a
-            href={`/api/invoices/${invoice._id}/pdf`}
+            href={`/api/public/invoices/${invoice.publicAccessToken}/pdf`}
             target="_blank"
             rel="noreferrer"
             className="flex items-center space-x-2 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition"
@@ -218,17 +227,58 @@ export const InvoiceDetailPage: React.FC = () => {
 
       {/* Email Dispatched Alert */}
       {emailNotice && (
-        <div className="bg-emerald-950/60 border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+        <div
+          className={`border rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg ${
+            emailNotice.fallback
+              ? 'bg-amber-950/60 border-amber-500/30'
+              : 'bg-emerald-950/60 border-emerald-500/30'
+          }`}
+        >
           <div className="flex items-center space-x-3">
-            <Mail className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+            <Mail
+              className={`w-5 h-5 flex-shrink-0 ${
+                emailNotice.fallback ? 'text-amber-400' : 'text-emerald-400'
+              }`}
+            />
             <div>
-              <p className="text-xs font-bold text-emerald-200">{emailNotice.message}</p>
-              <p className="text-[11px] text-emerald-400/80">
-                The client ({client?.email || 'registered billing address'}) received this invoice with PDF attached.
+              <p
+                className={`text-xs font-bold ${
+                  emailNotice.fallback ? 'text-amber-200' : 'text-emerald-200'
+                }`}
+              >
+                {emailNotice.message}
+              </p>
+              <p
+                className={`text-[11px] ${
+                  emailNotice.fallback ? 'text-amber-400/90' : 'text-emerald-400/80'
+                }`}
+              >
+                {emailNotice.fallback
+                  ? `Cloud SMTP is restricted on free tier. Send invoice & payment link to ${client?.email} via Gmail or your mail app!`
+                  : `The client (${client?.email || 'registered billing address'}) received this invoice with PDF attached.`}
               </p>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {emailNotice.webmailUrl && (
+              <a
+                href={emailNotice.webmailUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center space-x-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] rounded-lg shadow transition"
+              >
+                <span>Open in Gmail</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+            {emailNotice.mailtoUrl && (
+              <a
+                href={emailNotice.mailtoUrl}
+                className="flex items-center space-x-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px] rounded-lg border border-slate-700 transition"
+              >
+                <span>Mail App</span>
+              </a>
+            )}
             {emailNotice.previewUrl && (
               <a
                 href={emailNotice.previewUrl}

@@ -11,6 +11,9 @@ const createFallbackTransporter = async (): Promise<nodemailer.Transporter> => {
     host: 'smtp.ethereal.email',
     port: 587,
     secure: false,
+    connectionTimeout: 4000,
+    greetingTimeout: 3000,
+    socketTimeout: 5000,
     auth: {
       user: testAccount.user,
       pass: testAccount.pass,
@@ -22,10 +25,13 @@ const getTransporter = async (): Promise<nodemailer.Transporter> => {
   if (transporterPromise) return transporterPromise;
 
   transporterPromise = (async () => {
-    // If SMTP credentials configured in .env, use them
+    // If SMTP credentials configured in .env, use them with strict connection timeouts
     if (process.env.SMTP_USER && process.env.SMTP_PASS) {
       return nodemailer.createTransport({
         service: 'gmail',
+        connectionTimeout: 4000,
+        greetingTimeout: 3000,
+        socketTimeout: 5000,
         auth: {
           user: process.env.SMTP_USER,
           pass: process.env.SMTP_PASS.replace(/\s+/g, ''),
@@ -154,12 +160,54 @@ export const sendInvoiceEmail = async (
     ],
   };
 
+  // 1. If Resend API Key configured, dispatch via HTTPS (Port 443, never blocked by cloud firewalls)
+  if (process.env.RESEND_API_KEY) {
+    try {
+      console.log(`[Email Service] Dispatching via Resend HTTPS API to ${client.email}...`);
+      const resendRes = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: process.env.FROM_EMAIL || 'FlowCast Invoices <onboarding@resend.dev>',
+          to: [client.email],
+          subject: mailOptions.subject,
+          html: htmlContent,
+          attachments: [
+            {
+              filename: `${invoice.invoiceNumber}.pdf`,
+              content: pdfBuffer.toString('base64'),
+            },
+          ],
+        }),
+      });
+
+      const resendData = (await resendRes.json()) as any;
+      if (!resendRes.ok) {
+        throw new Error(resendData?.message || 'Resend API error');
+      }
+
+      console.log(`[Email Sent via Resend] ID: ${resendData.id}`);
+      return {
+        success: true,
+        messageId: resendData.id,
+        previewUrl: false,
+        recipientEmail: client.email,
+      };
+    } catch (err: any) {
+      console.warn(`[Email Service] Resend dispatch failed (${err.message}). Trying SMTP fallback...`);
+    }
+  }
+
+  // 2. Otherwise attempt standard SMTP / Ethereal with fast failover
   let info: any;
   try {
     const transporter = await getTransporter();
     info = await transporter.sendMail(mailOptions);
   } catch (err: any) {
-    console.warn(`[Email Service] Live SMTP failed (${err.message}). Using Ethereal fallback for test preview...`);
+    console.warn(`[Email Service] Primary SMTP failed (${err.message}). Trying fallback test inbox...`);
     const fallbackTransporter = await createFallbackTransporter();
     info = await fallbackTransporter.sendMail(mailOptions);
   }

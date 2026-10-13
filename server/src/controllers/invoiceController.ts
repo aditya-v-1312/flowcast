@@ -327,7 +327,26 @@ export const sendInvoiceToClient = async (req: AuthRequest, res: Response): Prom
       return;
     }
 
-    const emailResult = await sendInvoiceEmail(invoice, user, client);
+    const safeCurrency = (invoice.currency === 'INR' || invoice.currency === '₹') ? 'INR' : invoice.currency;
+    const clientUrl = process.env.CLIENT_URL || 'https://flowcast-2m29.onrender.com';
+    const publicPayUrl = `${clientUrl}/pay/${invoice.publicAccessToken}`;
+    const pdfDownloadUrl = `${clientUrl}/api/public/invoices/${invoice.publicAccessToken}/pdf`;
+
+    const emailSubject = `Invoice #${invoice.invoiceNumber} from ${user.businessName || user.name} - ${safeCurrency} ${invoice.balanceDue.toLocaleString()}`;
+    const emailBody = `Hi ${client.name},\n\nPlease find your invoice #${invoice.invoiceNumber} for ${safeCurrency} ${invoice.balanceDue.toLocaleString()} due on ${new Date(invoice.dueDate).toLocaleDateString()}.\n\nView & Pay Online:\n${publicPayUrl}\n\nDirect PDF Download:\n${pdfDownloadUrl}\n\n${user.bankDetails?.bankName ? `Bank Transfer Details:\nBank: ${user.bankDetails.bankName}\nA/C: ${user.bankDetails.accountNumber}\nIFSC: ${user.bankDetails.routingOrIfsc}\n` : ''}${user.bankDetails?.upiId ? `UPI ID: ${user.bankDetails.upiId}\n` : ''}\nThank you,\n${user.businessName || user.name}`;
+
+    const mailtoUrl = `mailto:${encodeURIComponent(client.email)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+    const webmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(client.email)}&su=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+
+    let emailResult: any = null;
+    let fallback = false;
+
+    try {
+      emailResult = await sendInvoiceEmail(invoice, user, client);
+    } catch (err: any) {
+      console.warn(`[Send Email] Cloud SMTP dispatch failed (${err.message}). Activating direct mail client fallback.`);
+      fallback = true;
+    }
 
     // If invoice was DRAFT, advance to SENT
     if (invoice.status === 'DRAFT') {
@@ -337,10 +356,31 @@ export const sendInvoiceToClient = async (req: AuthRequest, res: Response): Prom
     invoice.lastReminderDate = new Date();
     await invoice.save();
 
+    if (fallback) {
+      res.json({
+        success: true,
+        fallback: true,
+        message: 'Direct SMTP is restricted by cloud hosting. Ready to send via Gmail or default Mail app!',
+        mailtoUrl,
+        webmailUrl,
+        publicPayUrl,
+        pdfDownloadUrl,
+        recipientEmail: client.email,
+        invoice,
+      });
+      return;
+    }
+
     res.json({
       success: true,
+      fallback: false,
       message: `Invoice email successfully dispatched to ${client.email} with PDF attached!`,
-      previewUrl: emailResult.previewUrl,
+      previewUrl: emailResult?.previewUrl,
+      recipientEmail: client.email,
+      mailtoUrl,
+      webmailUrl,
+      publicPayUrl,
+      pdfDownloadUrl,
       invoice,
     });
   } catch (error: any) {

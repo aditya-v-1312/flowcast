@@ -98,19 +98,66 @@ export const CashFlowPage: React.FC = () => {
 
   const currency = user?.currency === 'USD' ? '$' : user?.currency || '₹';
 
-  // Apply scenario simulation delay to projections
-  const simulatedProjections = (data?.projections || []).map((p) => {
-    // If extra delay simulated, shift a proportion of inflows to later period
-    const shiftRatio = simulationDelayDays > 0 ? Math.min(simulationDelayDays / 60, 0.6) : 0;
-    const adjustedInflow = Math.round(p.projectedInflow * (1 - shiftRatio));
-    const net = adjustedInflow - p.recurringExpenses;
+  // Dynamically recalculate bucket inflows when simulation delay is applied so deferred cash rolls over into following periods
+  const { simulatedProjections, delayedBeyond90 } = React.useMemo(() => {
+    if (!data?.projections) {
+      return { simulatedProjections: [], delayedBeyond90: 0 };
+    }
 
-    return {
-      ...p,
-      simulatedInflow: adjustedInflow,
-      simulatedNet: net,
-    };
-  });
+    if (simulationDelayDays === 0) {
+      return {
+        simulatedProjections: data.projections.map((p) => ({
+          ...p,
+          simulatedInflow: p.projectedInflow,
+          simulatedNet: p.netCashFlow,
+        })),
+        delayedBeyond90: 0,
+      };
+    }
+
+    const now = Date.now();
+    const d30 = now + 30 * 24 * 60 * 60 * 1000;
+    const d60 = now + 60 * 24 * 60 * 60 * 1000;
+    const d90 = now + 90 * 24 * 60 * 60 * 1000;
+
+    let simInflow30 = 0;
+    let simInflow60 = 0;
+    let simInflow90 = 0;
+    let delayedBeyond90 = 0;
+
+    (data.projectedInvoices || []).forEach((inv) => {
+      const baseDate = new Date(inv.adjustedPaymentDate || inv.originalDueDate).getTime();
+      const simArrivalDate = baseDate + simulationDelayDays * 24 * 60 * 60 * 1000;
+
+      if (simArrivalDate <= d30) {
+        simInflow30 += inv.balanceDue;
+      } else if (simArrivalDate <= d60) {
+        simInflow60 += inv.balanceDue;
+      } else if (simArrivalDate <= d90) {
+        simInflow90 += inv.balanceDue;
+      } else {
+        delayedBeyond90 += inv.balanceDue;
+      }
+    });
+
+    const simulatedProjections = data.projections.map((p) => {
+      let inflow = 0;
+      if (p.period.includes('0-30')) inflow = simInflow30;
+      else if (p.period.includes('31-60')) inflow = simInflow60;
+      else if (p.period.includes('61-90')) inflow = simInflow90;
+
+      const roundedInflow = Math.round(inflow);
+      const simulatedNet = roundedInflow - p.recurringExpenses;
+
+      return {
+        ...p,
+        simulatedInflow: roundedInflow,
+        simulatedNet,
+      };
+    });
+
+    return { simulatedProjections, delayedBeyond90 };
+  }, [data, simulationDelayDays]);
 
   const totalProjectedReceivables = (data?.projectedInvoices || []).reduce(
     (acc, inv) => acc + inv.balanceDue,
@@ -161,7 +208,7 @@ export const CashFlowPage: React.FC = () => {
             <input
               type="range"
               min="0"
-              max="45"
+              max="60"
               step="5"
               value={simulationDelayDays}
               onChange={(e) => setSimulationDelayDays(Number(e.target.value))}
@@ -171,8 +218,15 @@ export const CashFlowPage: React.FC = () => {
               <span>On-Time</span>
               <span>+15d</span>
               <span>+30d</span>
-              <span>+45d Risk</span>
+              <span>+45d</span>
+              <span>+60d Risk</span>
             </div>
+            {delayedBeyond90 > 0 && (
+              <div className="pt-2 border-t border-slate-800 flex items-center gap-1.5 text-[11px] text-amber-400 font-medium">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>{currency} {delayedBeyond90.toLocaleString()} pushed beyond 90-day horizon</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -332,7 +386,26 @@ export const CashFlowPage: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-slate-200 font-medium">
-                      {new Date(inv.adjustedPaymentDate).toLocaleDateString()}
+                      {simulationDelayDays > 0 ? (
+                        <div>
+                          <div className="flex items-center gap-1.5 text-amber-400 font-semibold">
+                            <span>
+                              {new Date(
+                                new Date(inv.adjustedPaymentDate).getTime() +
+                                  simulationDelayDays * 24 * 60 * 60 * 1000
+                              ).toLocaleDateString()}
+                            </span>
+                            <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-normal">
+                              +{simulationDelayDays}d
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-500 line-through">
+                            {new Date(inv.adjustedPaymentDate).toLocaleDateString()}
+                          </div>
+                        </div>
+                      ) : (
+                        new Date(inv.adjustedPaymentDate).toLocaleDateString()
+                      )}
                     </td>
                     <td className="px-5 py-3.5">
                       <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">

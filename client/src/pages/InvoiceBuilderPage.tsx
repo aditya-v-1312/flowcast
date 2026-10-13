@@ -203,7 +203,11 @@ export const InvoiceBuilderPage: React.FC = () => {
       });
 
       if (andEmail && res.data?.invoice?._id) {
-        await api.post(`/invoices/${res.data.invoice._id}/send`);
+        try {
+          await api.post(`/invoices/${res.data.invoice._id}/send`);
+        } catch (sendErr) {
+          console.warn('Initial email dispatch deferred', sendErr);
+        }
       }
 
       navigate('/invoices');
