@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import mongoose from 'mongoose';
 import { Invoice } from '../models/Invoice.js';
 import { Client } from '../models/Client.js';
 import { RecurringExpense } from '../models/RecurringExpense.js';
