@@ -16,7 +16,8 @@ interface RateLimitStore {
 export const createRateLimiter = (
   windowMs: number,
   max: number,
-  message: string = 'Too many requests from this IP, please try again later.'
+  message: string = 'Too many requests from this IP, please try again later.',
+  skipSuccessful: boolean = false
 ) => {
   const hits: RateLimitStore = {};
 
@@ -39,6 +40,14 @@ export const createRateLimiter = (
         count: 1,
         resetTime: now + windowMs,
       };
+      
+      if (skipSuccessful) {
+        res.on('finish', () => {
+          if (res.statusCode < 400 && hits[ip]) {
+            hits[ip].count = Math.max(0, hits[ip].count - 1);
+          }
+        });
+      }
       return next();
     }
 
@@ -53,6 +62,14 @@ export const createRateLimiter = (
       return;
     }
 
+    if (skipSuccessful) {
+      res.on('finish', () => {
+        if (res.statusCode < 400 && hits[ip]) {
+          hits[ip].count = Math.max(0, hits[ip].count - 1);
+        }
+      });
+    }
+
     next();
   };
 };
@@ -60,8 +77,9 @@ export const createRateLimiter = (
 // Standard limiters
 export const loginLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
-  10,             // 10 attempts
-  'Too many failed login attempts. For security, please wait 15 minutes before trying again.'
+  15,             // 15 failed attempts
+  'Too many failed login attempts. For security, please wait 15 minutes before trying again.',
+  true            // Skip successful logins so genuine users aren't locked out
 );
 
 export const emailSendLimiter = createRateLimiter(

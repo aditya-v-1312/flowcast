@@ -77,9 +77,6 @@ app.use('/api/expenses', expenseRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/public', publicRoutes);
 
-// Error Handling Middleware
-app.use(errorHandler);
-
 // Production Static Serving: Serve React client build if present
 const clientDistPath = path.resolve(process.cwd(), '../client/dist');
 const altClientDistPath = path.resolve(process.cwd(), 'client/dist');
@@ -96,6 +93,9 @@ if (staticPath) {
     res.sendFile(path.join(staticPath, 'index.html'));
   });
 }
+
+// Error Handling Middleware (must be after all routes and static handlers)
+app.use(errorHandler);
 
 // Start Server and Cron
 const startServer = async () => {
