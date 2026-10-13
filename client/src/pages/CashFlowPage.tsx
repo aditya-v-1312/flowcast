@@ -88,16 +88,6 @@ export const CashFlowPage: React.FC = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96 text-slate-400">
-        <RefreshCw className="w-8 h-8 animate-spin text-emerald-500" />
-      </div>
-    );
-  }
-
-  const currency = user?.currency === 'USD' ? '$' : user?.currency || '₹';
-
   // Dynamically recalculate bucket inflows when simulation delay is applied so deferred cash rolls over into following periods
   const { simulatedProjections, delayedBeyond90 } = React.useMemo(() => {
     if (!data?.projections) {
@@ -163,6 +153,16 @@ export const CashFlowPage: React.FC = () => {
     (acc, inv) => acc + inv.balanceDue,
     0
   );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96 text-slate-400">
+        <RefreshCw className="w-8 h-8 animate-spin text-emerald-500" />
+      </div>
+    );
+  }
+
+  const currency = user?.currency === 'USD' ? '$' : user?.currency || '₹';
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
